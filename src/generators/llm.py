@@ -84,7 +84,6 @@ class LLMGenerator:
 
     # Генерация текста для отдельного задания
     def _generate(self, job: llmJob) -> str:
-        prompt = job.prompt
         params = job.params or {}
 
         max_new_tokens = int(params.get("max_tokens", 256))
@@ -93,7 +92,27 @@ class LLMGenerator:
         top_p = float(params.get("top_p", 0.95))
         do_sample = bool(params.get("do_sample", True))
 
-        # Подготавливаем входные тензоры и переносим на устройство модели
+        # 1) Подготовка промпта: чатовый или обычный
+        if job.api == "chat-completion":
+            messages = job.messages or []
+            if hasattr(self.tokenizer, "apply_chat_template"):
+                prompt = self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                # Фолбэк: простая склейка контента
+                parts = []
+                for m in messages:
+                    role = m.get("role", "user")
+                    content = m.get("content", "")
+                    parts.append(f"{role}: {content}")
+                prompt = "\n".join(parts) + "\nassistant:"
+        else:
+            prompt = job.prompt or ""
+
+        # 2) Токенизация и перенос на устройство модели
         inputs = self.tokenizer(prompt, return_tensors="pt")
         try:
             device = next(self.model.parameters()).device
@@ -115,7 +134,7 @@ class LLMGenerator:
                 pad_token_id=pad_id,
             )
 
-        # Возвращаем только сгенерированную часть (без префикса-подсказки)
+        # 3) Возвращаем только сгенерированную часть (без префикса-подсказки)
         seq = output_ids[0]
         in_len = inputs["input_ids"].shape[1]
         gen_part = seq[in_len:]

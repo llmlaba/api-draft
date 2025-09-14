@@ -9,6 +9,14 @@ class ModelLLM:
     local_files_only: bool = True
     trust_remote_code: bool = True
 
+class ModelLLMInstruct:
+    llm: str = '/home/sysadmin/llm/mistral_instruct'
+    quant: str = "none"
+    dtype: str = "fp16"
+    device: str = "cuda"
+    local_files_only: bool = True
+    trust_remote_code: bool = True
+
 class ModelDiffusers:
     diffusers: str = '/home/sysadmin/llm/sd1.5'
 

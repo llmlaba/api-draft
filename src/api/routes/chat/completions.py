@@ -5,27 +5,31 @@ from src.generators.job import llmJob
 
 
 def create_blueprint(deps):
-
-    bp = Blueprint("completions", __name__, url_prefix="/v1/completions")
+    # Chat Completions endpoint (plural)
+    bp = Blueprint("chat_completions", __name__, url_prefix="/v1/chat/completions")
 
     job_queue = deps.llm_jobs_queue
     jobs = deps.llm_jobs
 
     @bp.route("/", methods=["POST"])
-    def generate():
+    def generate_chat():
         """
-        Тело запроса (JSON):
+        JSON body example:
         {
-          "prompt": "...",
+          "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user",   "content": "Hello"}
+          ],
           "max_tokens": 256,
           "temperature": 0.7,
           "top_p": 0.95,
+          "do_sample": true
         }
         """
         data = request.get_json(force=True) or {}
-        prompt = data.get("prompt", "")
-        if not prompt:
-            return jsonify({"error": "prompt is required"}), 400
+        messages = data.get("messages")
+        if not isinstance(messages, list) or not messages:
+            return jsonify({"error": "messages (non-empty list) is required"}), 400
 
         params = {
             "max_tokens": int(data.get("max_tokens", 256)),
@@ -34,16 +38,21 @@ def create_blueprint(deps):
             "do_sample": bool(data.get("do_sample", True)),
         }
 
-        # Создаём задачу и отправляем в очередь LLM
         job_id = str(uuid.uuid4())
-        job = llmJob(id=job_id, prompt=prompt, params=params)
+        job = llmJob(
+            id=job_id,
+            api="chat-completion",
+            prompt="",
+            messages=messages,
+            params=params,
+        )
         jobs[job_id] = job
         job_queue.put(job)
 
-        # Синхронный режим: ждём завершения
         job.done.wait()
         if job.error:
             return jsonify({"job_id": job_id, "error": job.error}), 500
         return jsonify({"job_id": job_id, "result": job.result})
 
     return bp
+
