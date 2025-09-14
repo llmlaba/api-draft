@@ -1,8 +1,19 @@
 from dataclasses import dataclass
 
 @dataclass
-class ModelPath:
+class ModelLLM:
     llm: str = '/home/sysadmin/llm/mistral'
-    tts: str = '/home/sysadmin/llm/bark'
-    embeddings: str = '/home/sysadmin/llm/st'
+    quant: str = "none"
+    dtype: str = "fp16"
+    device: str = "CUDA"
+    local_files_only: bool = True
+    trust_remote_code: bool = True
+
+class ModelDiffusers:
     diffusers: str = '/home/sysadmin/llm/sd1.5'
+
+class ModelTTS:
+    tts: str = '/home/sysadmin/llm/bark'
+
+class ModelEmbedding:
+    model_path: str = '/home/sysadmin/llm/st'

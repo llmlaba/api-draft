@@ -1,23 +1,49 @@
-import argparse
+import queue
+from typing import Dict
 
-def main(argv=None):
+from config import ModelLLM
+from src.models.config import ModelConfig
+from src.generators.job import llmJob
+from src.generators.llm import LLMGenerator
 
-    ap = argparse.ArgumentParser(prog='pt-llm-bench', description='PyTorch LLM bench (llama-bench-like)')
-    # possible models llm, tss, diffusers, asm, embedder
-    ap.add_argument('-m','--models', default=['llm'])
-    ap.add_argument('--dtype', type=str, default='fp16', choices=['fp16','bf16','fp32'])
-    ap.add_argument('--quant', type=str, default='none', choices=['none','4bit'])
-    ap.add_argument('--attn', type=str, default='sdpa')
-    args = ap.parse_args(argv)
 
-    if not torch.cuda.is_available():
-        console.print('[yellow]WARNING[/]: CUDA/ROCm device not available; running on CPU will be slow.')
+def _to_model_config(cfg: ModelLLM) -> ModelConfig:
+    # Normalize dtype aliases and device name
+    return ModelConfig(
+        model_id=cfg.llm,
+        quant=(getattr(cfg, "quant", None) or "none").lower(),
+        dtype=cfg.dtype,
+        device=cfg.device,
+        local_files_only=bool(getattr(cfg, "local_files_only", True)),
+        trust_remote_code=bool(getattr(cfg, "trust_remote_code", False)),
+    )
 
-    model_cfg = ModelConfig(model_id=args.models, dtype=args.dtype, attn_impl=args.attn, quant=args.quant)
 
-    backend = detect_backend(); device = device_string()
-    render_header(console, torch.__version__, _tf.__version__, backend, device)
+# Global queue and job registry for LLM tasks
+llm_jobs_queue: "queue.Queue[llmJob]" = queue.Queue()
+llm_jobs: Dict[str, llmJob] = {}
 
-    loader = ModelLoader(model_cfg)
+# Build ModelConfig from project-level configuration
+_llm_cfg = ModelLLM()
+_model_config = _to_model_config(_llm_cfg)
 
-    return 0
+# Initialize and start the LLM generator worker
+llm_generator = LLMGenerator(llm_jobs_queue, _model_config)
+llm_generator.start()
+
+
+def main():
+    # Optional: keep process alive and allow graceful shutdown via Ctrl+C
+    import time
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        llm_generator.stop()
+        llm_generator.join(timeout=5.0)
+
+
+if __name__ == "__main__":
+    main()
+
+
