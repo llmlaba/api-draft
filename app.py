@@ -1,3 +1,4 @@
+import os
 import queue
 from typing import Dict
 
@@ -5,6 +6,7 @@ from config import ModelLLM
 from src.models.config import ModelConfig
 from src.generators.job import llmJob
 from src.generators.llm import LLMGenerator
+from src.api.server import create_app
 
 
 def _to_model_config(cfg: ModelLLM) -> ModelConfig:
@@ -32,13 +34,19 @@ llm_generator = LLMGenerator(llm_jobs_queue, _model_config)
 llm_generator.start()
 
 
+# Flask application
+flask_app = create_app(llm_jobs_queue, llm_jobs)
+
+
 def main():
-    # Optional: keep process alive and allow graceful shutdown via Ctrl+C
-    import time
+    # Run Flask development server by default; can be overridden by WSGI servers
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
     try:
-        while True:
-            time.sleep(1)
+        flask_app.run(host=host, port=port)
     except KeyboardInterrupt:
+        pass
+    finally:
         llm_generator.stop()
         llm_generator.join(timeout=5.0)
 

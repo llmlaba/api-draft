@@ -1,50 +1,49 @@
-import os
+from flask import Blueprint, jsonify, request
 import uuid
 
-from flask import Flask, request, jsonify
+from src.generators.job import llmJob
 
-app = Flask(__name__)
 
-@app.route("/v1/completion", methods=["POST"])
-def generate():
-    """
-    Тело запроса (JSON):
-    {
-      "prompt": "...",
-      "max_tokens": 256,
-      "temperature": 0.7,
-      "top_p": 0.95,
-    }
-    """
-    data = request.get_json(force=True)
-    prompt = data.get("prompt", "")
-    if not prompt:
-        return jsonify({"error": "prompt is required"}), 400
+def create_blueprint(deps):
 
-    params = {
-        "max_tokens": int(data.get("max_tokens", 256)),
-        "temperature": float(data.get("temperature", 0.7)),
-        "top_p": float(data.get("top_p", 0.95)),
-        "do_sample": bool(data.get("do_sample", True)),
-    }
+    bp = Blueprint("completions", __name__, url_prefix="/v1/completion")
 
-    # Создаём задачу
-    job_id = str(uuid.uuid4())
-    job = Job(id=job_id, prompt=prompt, params=params)
-    jobs[job_id] = job
-    job_queue.put(job)
+    job_queue = deps.llm_jobs_queue
+    jobs = deps.llm_jobs
 
-    # Блокируемся до готовности (или можно добавить timeout)
-    job.done.wait()
-    if job.error:
-        return jsonify({"job_id": job_id, "error": job.error}), 500
-    return jsonify({"job_id": job_id, "result": job.result})
+    @bp.route("/", methods=["POST"])
+    def generate():
+        """
+        Тело запроса (JSON):
+        {
+          "prompt": "...",
+          "max_tokens": 256,
+          "temperature": 0.7,
+          "top_p": 0.95,
+        }
+        """
+        data = request.get_json(force=True) or {}
+        prompt = data.get("prompt", "")
+        if not prompt:
+            return jsonify({"error": "prompt is required"}), 400
 
-    # Асинхронный режим: клиент заберёт результат по /result/<job_id>
-    return jsonify({"job_id": job_id, "status": "queued"}), 202
+        params = {
+            "max_tokens": int(data.get("max_tokens", 256)),
+            "temperature": float(data.get("temperature", 0.7)),
+            "top_p": float(data.get("top_p", 0.95)),
+            "do_sample": bool(data.get("do_sample", True)),
+        }
 
-if __name__ == "__main__":
-    # Для разработки: flask dev-сервер
-    # В проде используйте gunicorn:  gunicorn -w 1 -k gthread --threads 16 app:app
-    # ВАЖНО: workers=1 (один процесс), иначе каждая копия загрузит модель в VRAM.
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)), threaded=True)
+        # Создаём задачу и отправляем в очередь LLM
+        job_id = str(uuid.uuid4())
+        job = llmJob(id=job_id, prompt=prompt, params=params)
+        jobs[job_id] = job
+        job_queue.put(job)
+
+        # Синхронный режим: ждём завершения
+        job.done.wait()
+        if job.error:
+            return jsonify({"job_id": job_id, "error": job.error}), 500
+        return jsonify({"job_id": job_id, "result": job.result})
+
+    return bp
