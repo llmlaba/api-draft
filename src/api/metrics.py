@@ -9,3 +9,5 @@ def create_blueprint(deps):
     @bp.get("/healthz")
     def healthz():
         return jsonify({"status": "ok", "queue_size": job_queue.qsize()})
+
+    return bp

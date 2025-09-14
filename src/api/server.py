@@ -4,7 +4,7 @@ import importlib, pkgutil, os
 from dataclasses import dataclass
 
 from . import routes
-from .metrics import bp as metrics_bp
+from . import metrics
 
 @dataclass
 class Deps:
@@ -17,7 +17,7 @@ def create_app(llm_jobs_queue, llm_jobs) -> Flask:
     deps = Deps(llm_jobs_queue=llm_jobs_queue, llm_jobs=llm_jobs)
 
     # Базовые метрики/хелсчек
-    app.register_blueprint(metrics_bp)
+    app.register_blueprint(metrics.create_blueprint(deps))
 
     # Автоподхват всех модулей в /routes/*
     for _, modname, ispkg in pkgutil.iter_modules(routes.__path__):
