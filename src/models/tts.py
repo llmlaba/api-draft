@@ -1,15 +1,19 @@
 """TTS loader: class to load Bark TTS model without quantization.
 Usage example:
-    loader = tts_loader(
-        model_path="/path/to/bark",  # e.g. local path or "suno/bark-small"
-        dtype="bfloat16"             # one of: "float16", "float32", "bfloat16"
+    from src.models.config import ModelConfig
+
+    cfg = ModelConfig(
+        model_id="/path/to/bark",  # e.g. local path or "suno/bark-small"
+        dtype="bfloat16"           # one of: "float16", "float32", "bfloat16" / "bf16"
     )
+    loader = tts_loader(cfg)
     model, processor = loader.load()
 """
 from __future__ import annotations
 from typing import Optional, Tuple
 import torch
 from transformers import AutoProcessor, BarkModel
+from src.models.config import ModelConfig
 
 
 _DTYPE_MAP = {
@@ -30,22 +34,17 @@ class tts_loader:
     - trust_remote_code: pass through to HF loaders if custom code is needed
     """
 
-    def __init__(
-        self,
-        model_path: str,
-        dtype: str = "bfloat16",
-        device: Optional[str] = None,
-        local_files_only: bool = True,
-        trust_remote_code: bool = False,
-    ) -> None:
-        self.model_path = model_path
+    def __init__(self, config: ModelConfig) -> None:
+        self.config = config
+        self.model_path = config.model_id
         # Accept common dtype aliases; default to bf16
-        self.dtype = _DTYPE_MAP.get((dtype or "bfloat16").lower(), torch.bfloat16)
+        self.dtype = _DTYPE_MAP.get((config.dtype or "bf16").lower(), torch.bfloat16)
+        device = config.device
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
-        self.local_files_only = local_files_only
-        self.trust_remote_code = trust_remote_code
+        self.local_files_only = bool(config.local_files_only)
+        self.trust_remote_code = bool(config.trust_remote_code)
         self._model: Optional[BarkModel] = None
         self._processor: Optional[AutoProcessor] = None
 

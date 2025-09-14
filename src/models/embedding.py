@@ -1,8 +1,19 @@
-"""Эмбеддинги: реализация на SentenceTransformers (CPU/GPU)."""
+"""Эмбеддинги: реализация на SentenceTransformers (CPU/GPU).
+
+Пример использования:
+    from src.models.config import ModelConfig
+
+    cfg = ModelConfig(
+        model_id="intfloat/e5-small",
+        dtype="bf16",
+    )
+    loader = embedding_loader(cfg)
+"""
 from typing import List, Protocol, Optional
 import torch
 from dataclasses import dataclass
 from src import logger
+from src.models.config import ModelConfig
 
 # Простой маппинг типов для управления dtype при загрузке
 _DTYPE_MAP = {
@@ -15,28 +26,20 @@ _DTYPE_MAP = {
 class embedding_loader:
     """Загрузчик эмбеддинг-моделей (SentenceTransformers) на GPU/CPU.
 
-    Повторяет подход llm_loader (без квантования):
-    - model_path: путь к модели (локальный или с HF hub)
-    - dtype: один из {"fp16", "fp32", "bf16"} или полные названия (float16/32/bfloat16)
-    - device: "cuda" или "cpu" (по умолчанию авто: cuda если доступно)
-    - local_files_only / trust_remote_code: пробрасываются при возможности
+    Повторяет подход llm_loader (без квантования). Параметры:
+    - config: ModelConfig (model_id, dtype, device, local_files_only, trust_remote_code)
     """
 
-    def __init__(
-        self,
-        model_path: str,
-        dtype: str = "bf16",
-        device: Optional[str] = None,
-        local_files_only: bool = True,
-        trust_remote_code: bool = False,
-    ) -> None:
-        self.model_path = model_path
-        self.dtype = _DTYPE_MAP.get(dtype.lower(), torch.bfloat16)
+    def __init__(self, config: ModelConfig) -> None:
+        self.config = config
+        self.model_path = config.model_id
+        self.dtype = _DTYPE_MAP.get((config.dtype or "bf16").lower(), torch.bfloat16)
+        device = config.device
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
-        self.local_files_only = local_files_only
-        self.trust_remote_code = trust_remote_code
+        self.local_files_only = bool(config.local_files_only)
+        self.trust_remote_code = bool(config.trust_remote_code)
         self._model = None
 
     def load(self):

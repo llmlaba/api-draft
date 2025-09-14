@@ -1,16 +1,20 @@
 """LLM loader: simple class to load CausalLM models with optional 4/8-bit quantization.
 Usage example:
-    loader = llm_loader(
-        model_path="/path/to/mistral",
+    from src.models.config import ModelConfig
+
+    cfg = ModelConfig(
+        model_id="/path/to/mistral",
         quant="4bit",            # one of: "none", "4bit", "8bit"
-        dtype="bfloat16"          # one of: "float16", "float32", "bfloat16"
+        dtype="bfloat16",        # one of: "float16", "float32", "bfloat16" / "bf16"
     )
+    loader = llm_loader(cfg)
     model, tokenizer = loader.load()
 """
 from __future__ import annotations
 from typing import Optional, Tuple
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline as hf_pipeline
+from src.models.config import ModelConfig
 
 # Quantization policies for transformers (text encoder/LLM) live here
 try:
@@ -32,31 +36,21 @@ class llm_loader:
     """Load a CausalLM model with optional 4/8-bit quantization.
 
     Parameters:
-    - model_path: local or hub path to model
-    - quant: "none" | "4bit" | "8bit" (default: "none")
-    - dtype: "float16" | "float32" | "bfloat16" (default: "bfloat16")
-    - device: target device, e.g. "cuda" or "cpu" (default: auto: cuda if available)
-    - local_files_only: whether to restrict to local files (default: True)
-    - trust_remote_code: pass through to HF loaders if custom code is needed
+    - config: ModelConfig with fields like model_id, quant, dtype, device,
+      local_files_only, trust_remote_code
     """
 
-    def __init__(
-        self,
-        model_path: str,
-        quant: str = "none",
-        dtype: str = "bfloat16",
-        device: Optional[str] = None,
-        local_files_only: bool = True,
-        trust_remote_code: bool = False,
-    ) -> None:
-        self.model_path = model_path
-        self.quant = (quant or "none").lower()
-        self.dtype = _DTYPE_MAP.get(dtype.lower(), torch.bfloat16)
+    def __init__(self, config: ModelConfig) -> None:
+        self.config = config
+        self.model_path = config.model_id
+        self.quant = (config.quant or "none").lower()
+        self.dtype = _DTYPE_MAP.get((config.dtype or "bf16").lower(), torch.bfloat16)
+        device = config.device
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
-        self.local_files_only = local_files_only
-        self.trust_remote_code = trust_remote_code
+        self.local_files_only = bool(config.local_files_only)
+        self.trust_remote_code = bool(config.trust_remote_code)
         self._model = None
         self._tokenizer = None
 
