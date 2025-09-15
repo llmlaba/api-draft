@@ -37,3 +37,14 @@ curl http://192.168.0.77:8000/v1/images/generations/ \
         "size": "512x512"
     }'
 ```
+
+```bash
+curl http://192.168.0.77:8000/v1/audio/speech/ \
+  -H "Content-Type: application/json" \
+  -d '{
+      "model": "",
+      "input": "Hello! It is example of text to speech conversion.",
+      "voice": "v2/en_speaker_6",
+      "format": "wav"
+    }'
+```
