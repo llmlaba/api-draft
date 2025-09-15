@@ -14,3 +14,15 @@ class llmJob:
     result: Optional[str] = None
     error: Optional[str] = None
     created_ts: float = field(default_factory=time.time)
+
+
+@dataclass
+class imageJob:
+    id: str
+    prompt: str = ""
+    params: Dict[str, Any] = field(default_factory=dict)
+    api: str = "generation"  # or "edit" or "variation"
+    done: threading.Event = field(default_factory=threading.Event)
+    result: Dict[str, Any]
+    error: Optional[str] = None
+    created_ts: float = field(default_factory=time.time)

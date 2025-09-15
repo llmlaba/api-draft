@@ -4,6 +4,7 @@
 curl -s http://192.168.0.77:8000/v1/completions/ \
   -H "Content-Type: application/json" \
   -d '{
+        "model": "",
         "prompt": "What you know about sun?",
         "max_tokens": 60,
         "temperature": 0.7,
@@ -16,6 +17,7 @@ curl -s http://192.168.0.77:8000/v1/completions/ \
 curl -s http://192.168.0.77:8000/v1/chat/completions/ \
   -H "Content-Type: application/json" \
   -d '{
+        "model": "",
         "messages": [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What you know about sun?"}
@@ -30,10 +32,8 @@ curl -s http://192.168.0.77:8000/v1/chat/completions/ \
 curl http://192.168.0.77:8000/v1/images/generations/ \
   -H "Content-Type: application/json" \
   -d '{
-        "model": "gpt-image-1",
+        "model": "",
         "prompt": "cat sitting on a chair",
         "size": "512x512",
-        "n": 1,
-        "response_format": "b64_json"
     }'
 ```
