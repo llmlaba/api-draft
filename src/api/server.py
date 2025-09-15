@@ -1,50 +1,48 @@
 # server.py
 from flask import Flask
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Set
 
 from .routes import completions
 from .routes.chat import completions as chat_completions
 from .routes.images import generations as images_generations
+from .routes.audio import speech as audio_speech
 from . import metrics
 
 @dataclass
 class Deps:
+    # Queues
     llm_jobs_queue: Optional[object] = None
-    llm_jobs: Optional[object] = None
     image_jobs_queue: Optional[object] = None
+    speech_jobs_queue: Optional[object] = None
+    audio_jobs_queue: Optional[object] = None  # reserved for future (ASR)
+
+    # Job registries
+    llm_jobs: Optional[object] = None
     image_jobs: Optional[object] = None
-    api_mode: str = "completion"  # "completion" | "chat" | "images"
+    speech_jobs: Optional[object] = None
+    audio_jobs: Optional[object] = None  # reserved for future (ASR)
+
+    # Which APIs to expose
+    enabled_apis: Set[str] = field(default_factory=set)  # {"completion", "chat", "images", "speech"}
 
 
-def create_app(
-    llm_jobs_queue=None,
-    llm_jobs=None,
-    api_mode: str = "completion",
-    image_jobs_queue=None,
-    image_jobs=None,
-) -> Flask:
+def create_app(deps: Deps) -> Flask:
     app = Flask(__name__)
-    deps = Deps(
-        llm_jobs_queue=llm_jobs_queue,
-        llm_jobs=llm_jobs,
-        image_jobs_queue=image_jobs_queue,
-        image_jobs=image_jobs,
-        api_mode=api_mode,
-    )
 
-    # Базовые метрики/хелсчек
+    # Base metrics/healthcheck
     app.register_blueprint(metrics.create_blueprint(deps))
 
-    # Регистрируем нужный API
-    if api_mode == "chat":
+    # Conditionally register APIs based on enabled_apis
+    if "chat" in deps.enabled_apis:
         app.register_blueprint(chat_completions.create_blueprint(deps))
-    elif api_mode == "images":
-        app.register_blueprint(images_generations.create_blueprint(deps))
-    else:
+    if "completion" in deps.enabled_apis:
         app.register_blueprint(completions.create_blueprint(deps))
+    if "images" in deps.enabled_apis:
+        app.register_blueprint(images_generations.create_blueprint(deps))
+    if "speech" in deps.enabled_apis:
+        app.register_blueprint(audio_speech.create_blueprint(deps))
 
     app.extensions["deps"] = deps
-
     return app
 

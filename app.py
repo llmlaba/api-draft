@@ -1,19 +1,36 @@
 import os
 import queue
 import argparse
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any, Set
 
-from config import ModelLLM, ModelLLMInstruct, ModelDiffusers
+from config import ModelLLM, ModelLLMInstruct, ModelDiffusers, ModelTTS
 from src.models.config import ModelConfig
-from src.generators.job import llmJob, imageJob
+from src.generators.job import llmJob, imageJob, speechJob
 from src.generators.llm import LLMGenerator
 from src.generators.diffusers import DiffusersGenerator
-from src.api.server import create_app
+from src.generators.speech import SpeechGenerator
+from src.api.server import create_app, Deps
+
+# Global queues and job registries
+# LLM / Chat
+llm_jobs_queue: "queue.Queue[llmJob]" = queue.Queue()
+llm_jobs: Dict[str, llmJob] = {}
+# Images (Stable Diffusion)
+image_jobs_queue: "queue.Queue[imageJob]" = queue.Queue()
+image_jobs: Dict[str, imageJob] = {}
+# Speech (TTS) Bark
+speech_jobs_queue: "queue.Queue[speechJob]" = queue.Queue()
+speech_jobs: Dict[str, speechJob] = {}
+# Reserved for future ASR
+audio_jobs_queue: "queue.Queue[Any]" = queue.Queue()
+audio_jobs: Dict[str, Any] = {}
 
 
 def _to_model_config(cfg: Any) -> ModelConfig:
+    # Map various config classes to ModelConfig
+    model_id = getattr(cfg, "model_path", None)
     return ModelConfig(
-        model_id=getattr(cfg, "model_path", None),
+        model_id=model_id,
         quant=(getattr(cfg, "quant", None) or "none").lower(),
         dtype=getattr(cfg, "dtype", "bf16"),
         device=getattr(cfg, "device", None),
@@ -21,62 +38,80 @@ def _to_model_config(cfg: Any) -> ModelConfig:
         trust_remote_code=bool(getattr(cfg, "trust_remote_code", False)),
     )
 
-
-# Global queues and job registries
-llm_jobs_queue: "queue.Queue[llmJob]" = queue.Queue()
-llm_jobs: Dict[str, llmJob] = {}
-image_jobs_queue: "queue.Queue[imageJob]" = queue.Queue()
-image_jobs: Dict[str, imageJob] = {}
-
-
-def build_generator_and_app(model_choice: str):
+def build_generators_and_app(models: List[str]):
     generators: List[Any] = []
+    enabled_apis: Set[str] = set()
 
-    if model_choice == "images":
-        cfg = ModelDiffusers()
-        api_mode = "images"
-        model_config = _to_model_config(cfg)
-        img_gen = DiffusersGenerator(image_jobs_queue, model_config)
+    # LLM / Chat
+    llm_cfg = None
+    if "llm-instruct" in models or "llm" in models:
+        if "llm-instruct" in models:
+            llm_cfg = ModelLLMInstruct()
+            enabled_apis.add("chat")
+        if "llm" in models:
+            # If only llm is present, enable completion;
+            # If both present, also expose completion (served by instruct model).
+            enabled_apis.add("completion")
+            if llm_cfg is None:
+                llm_cfg = ModelLLM()
+        if llm_cfg is not None:
+            model_config = _to_model_config(llm_cfg)
+            llm_generator = LLMGenerator(llm_jobs_queue, model_config)
+            llm_generator.start()
+            generators.append(llm_generator)
+
+    # Images (Stable Diffusion)
+    if "images" in models:
+        img_cfg = ModelDiffusers()
+        img_model_config = _to_model_config(img_cfg)
+        img_gen = DiffusersGenerator(image_jobs_queue, img_model_config)
         img_gen.start()
         generators.append(img_gen)
-        app = create_app(
-            llm_jobs_queue=image_jobs_queue,  # reuse for metrics healthz
-            llm_jobs=None,
-            api_mode=api_mode,
-            image_jobs_queue=image_jobs_queue,
-            image_jobs=image_jobs,
-        )
-        return generators, app
+        enabled_apis.add("images")
 
-    # LLM modes
-    if model_choice == "llm-instruct":
-        cfg = ModelLLMInstruct()
-        api_mode = "chat"
-    else:
-        cfg = ModelLLM()
-        api_mode = "completion"
+    # Speech (TTS)
+    if "speech" in models:
+        tts_cfg = ModelTTS()
+        tts_model_config = _to_model_config(tts_cfg)
+        sp_gen = SpeechGenerator(speech_jobs_queue, tts_model_config)
+        sp_gen.start()
+        generators.append(sp_gen)
+        enabled_apis.add("speech")
 
-    model_config = _to_model_config(cfg)
+    deps = Deps(
+        # queues
+        llm_jobs_queue=llm_jobs_queue,
+        image_jobs_queue=image_jobs_queue,
+        speech_jobs_queue=speech_jobs_queue,
+        audio_jobs_queue=audio_jobs_queue,
+        # registries
+        llm_jobs=llm_jobs,
+        image_jobs=image_jobs,
+        speech_jobs=speech_jobs,
+        audio_jobs=audio_jobs,
+        # enabled apis
+        enabled_apis=enabled_apis,
+    )
 
-    llm_generator = LLMGenerator(llm_jobs_queue, model_config)
-    llm_generator.start()
-    generators.append(llm_generator)
-
-    app = create_app(llm_jobs_queue, llm_jobs, api_mode=api_mode)
+    app = create_app(deps)
     return generators, app
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model",
-        choices=["llm", "llm-instruct", "images"],
-        default="llm",
-        help="Which model type to run: base LLM, instruct (chat) model, or images (Stable Diffusion)",
+        "--models",
+        choices=["llm", "llm-instruct", "images", "speech"],
+        nargs="+",
+        default=["llm"],
+        help=(
+            "One or more models to run: llm (completion), llm-instruct (chat), "
+            "images (Stable Diffusion), speech (TTS). Example: --models llm images"
+        ),
     )
     args = parser.parse_args()
 
-    generators, flask_app = build_generator_and_app(args.model)
+    generators, flask_app = build_generators_and_app(args.models)
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))

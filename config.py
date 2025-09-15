@@ -26,7 +26,11 @@ class ModelDiffusers:
     trust_remote_code: bool = True
 
 class ModelTTS:
-    tts: str = '/home/sysadmin/llm/bark'
+    model_path: str = '/home/sysadmin/llm/bark'
+    dtype: str = "fp16"
+    device: str = "cuda"
+    local_files_only: bool = True
+    trust_remote_code: bool = True
 
 class ModelEmbedding:
     model_path: str = '/home/sysadmin/llm/st'
