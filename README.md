@@ -34,6 +34,6 @@ curl http://192.168.0.77:8000/v1/images/generations/ \
   -d '{
         "model": "",
         "prompt": "cat sitting on a chair",
-        "size": "512x512",
+        "size": "512x512"
     }'
 ```

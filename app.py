@@ -12,10 +12,8 @@ from src.api.server import create_app
 
 
 def _to_model_config(cfg: Any) -> ModelConfig:
-    # Normalize dtype aliases and device name
-    model_id = getattr(cfg, "llm", None) or getattr(cfg, "diffusers", None) or getattr(cfg, "model_id", None)
     return ModelConfig(
-        model_id=model_id,
+        model_id=getattr(cfg, "model_path", None),
         quant=(getattr(cfg, "quant", None) or "none").lower(),
         dtype=getattr(cfg, "dtype", "bf16"),
         device=getattr(cfg, "device", None),
