@@ -1,11 +1,10 @@
 """Speech (TTS) generator: queue-based worker using Bark via tts_loader.
 
 - Accepts speechJob tasks from a dedicated Queue.
-- Produces base64-encoded audio (wav by default) with simple metadata.
+- Produces raw audio bytes (wav by default) with simple metadata.
 """
 from __future__ import annotations
 
-import base64
 import io
 import queue
 import threading
@@ -71,9 +70,9 @@ class SpeechGenerator:
 
         # Prepare inputs for Bark
         inputs = self.processor(
-            text=[text], 
-            voice_preset=voice, 
-            return_tensors="pt"
+            text=[text],
+            voice_preset=voice,
+            return_tensors="pt",
         )
         # Move tensors to the same device as the model
         device = next(self.model.parameters()).device
@@ -104,22 +103,26 @@ class SpeechGenerator:
         # Normalize/clip to [-1,1]
         audio = np.clip(audio, -1.0, 1.0)
 
+        # Encode to bytes (wav for now)
         if fmt == "wav":
-            b64 = self._encode_wav_base64(audio, sample_rate)
+            audio_bytes = self._encode_wav_bytes(audio, sample_rate)
+            mime = "audio/wav"
         else:
-            # For unsupported formats, still return WAV
+            # Fallback/unsupported formats -> wav
             fmt = "wav"
-            b64 = self._encode_wav_base64(audio, sample_rate)
+            audio_bytes = self._encode_wav_bytes(audio, sample_rate)
+            mime = "audio/wav"
 
         return {
-            "audio": b64,
+            "audio_bytes": audio_bytes,
+            "mime": mime,
             "format": fmt,
             "sample_rate": sample_rate,
             "num_samples": int(audio.shape[0]),
         }
 
     @staticmethod
-    def _encode_wav_base64(audio_f32, sample_rate: int) -> str:
+    def _encode_wav_bytes(audio_f32, sample_rate: int) -> bytes:
         import numpy as np
         import wave
 
@@ -131,4 +134,4 @@ class SpeechGenerator:
             wf.setsampwidth(2)  # 16-bit
             wf.setframerate(sample_rate)
             wf.writeframes(pcm16.tobytes())
-        return base64.b64encode(bio.getvalue()).decode("ascii")
+        return bio.getvalue()

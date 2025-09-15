@@ -1,5 +1,6 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 import uuid
+import io
 
 from src.generators.job import speechJob
 
@@ -43,6 +44,19 @@ def create_blueprint(deps):
         job.done.wait()
         if job.error:
             return jsonify({"job_id": job_id, "error": job.error}), 500
-        return jsonify({"job_id": job_id, "result": job.result})
+
+        result = job.result or {}
+        audio_bytes = result.get("audio_bytes")
+        fmt = (result.get("format") or "wav").lower()
+        mime = result.get("mime") or ("audio/wav" if fmt == "wav" else "application/octet-stream")
+
+        if not audio_bytes:
+            return jsonify({"job_id": job_id, "error": "no audio produced"}), 500
+
+        return send_file(
+            io.BytesIO(audio_bytes),
+            mimetype=mime,
+            as_attachment=False,
+        )
 
     return bp

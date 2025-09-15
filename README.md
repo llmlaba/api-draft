@@ -50,5 +50,5 @@ curl http://192.168.0.77:8000/v1/audio/speech/ \
       "input": "Hello! It is example of text to speech conversion.",
       "voice": "v2/en_speaker_6",
       "format": "wav"
-    }'
+    }' -o ./my.wav
 ```
