@@ -1,6 +1,10 @@
 # transformers-chat-api
 
 ```bash
+curl http://192.168.0.77:8000/healthz
+```
+
+```bash
 curl -s http://192.168.0.77:8000/v1/completions/ \
   -H "Content-Type: application/json" \
   -d '{

@@ -71,15 +71,23 @@ class SpeechGenerator:
 
         # Prepare inputs for Bark
         inputs = self.processor(
-            text=[text], voice_preset=voice, return_tensors="pt"
+            text=[text], 
+            voice_preset=voice, 
+            return_tensors="pt"
         )
         # Move tensors to the same device as the model
         device = next(self.model.parameters()).device
-        inputs = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in inputs.items()}
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
         # Generate audio (float32 range -1..1)
         with torch.no_grad():
-            audio = self.model.generate(**inputs)
+            audio = self.model.generate(
+                **inputs,
+                do_sample=True,
+                fine_temperature=0.4,
+                coarse_temperature=0.8,
+                pad_token_id=self.processor.tokenizer.pad_token_id,
+            )
 
         if isinstance(audio, (list, tuple)):
             audio = audio[0]
