@@ -5,12 +5,12 @@ class ModelLLM:
     llm: str = '/home/sysadmin/llm/mistral'
     quant: str = "none"
     dtype: str = "fp16"
-    device: str = "CUDA"
+    device: str = "cuda"
     local_files_only: bool = True
     trust_remote_code: bool = True
 
 class ModelLLMInstruct:
-    llm: str = '/home/sysadmin/llm/mistral_instruct'
+    llm: str = '/home/sysadmin/llm/mistral-instruct'
     quant: str = "none"
     dtype: str = "fp16"
     device: str = "cuda"
