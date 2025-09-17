@@ -29,6 +29,7 @@ import torch
 from src.models.config import ModelConfig
 from src.models.llm import llm_loader
 from src.generators.job import llmJob
+from src.logger import get_logger, correlation_context
 
 
 class LLMGenerator:
@@ -41,6 +42,7 @@ class LLMGenerator:
     def __init__(self, job_queue: "queue.Queue[llmJob]", config: ModelConfig) -> None:
         self.queue: "queue.Queue[llmJob]" = job_queue
         self.config = config
+        self._log = get_logger(__name__)
 
         # Инициализируем модель/токенайзер через унифицированный загрузчик
         loader = llm_loader(config)
@@ -53,10 +55,12 @@ class LLMGenerator:
     # Управление жизненным циклом воркера
     def start(self) -> "LLMGenerator":
         if not self.worker.is_alive():
+            self._log.info("Starting LLM worker thread")
             self.worker.start()
         return self
 
     def stop(self) -> None:
+        self._log.info("Stopping LLM worker thread")
         self._stop_event.set()
 
     def join(self, timeout: Optional[float] = None) -> None:
@@ -70,17 +74,22 @@ class LLMGenerator:
             except queue.Empty:
                 continue
 
-            try:
-                result = self._generate(job)
-                job.result = result
-            except Exception as e:  # noqa: BLE001 — возвращаем ошибку в объект задания
-                job.error = repr(e)
-            finally:
-                job.done.set()
+            with correlation_context(job.id):
                 try:
-                    self.queue.task_done()
-                except Exception:
-                    pass
+                    self._log.info("Processing LLM job", extra={"job_id": job.id})
+                    self._log.debug("LLM job params", extra={"job_id": job.id, "params": job.params})
+                    result = self._generate(job)
+                    job.result = result
+                    self._log.info("LLM job done", extra={"job_id": job.id})
+                except Exception as e:  # noqa: BLE001 — возвращаем ошибку в объект задания
+                    job.error = repr(e)
+                    self._log.exception("Error while processing LLM job", extra={"job_id": job.id})
+                finally:
+                    job.done.set()
+                    try:
+                        self.queue.task_done()
+                    except Exception:
+                        self._log.warning("queue.task_done() failed", exc_info=True)
 
     # Генерация текста для отдельного задания
     def _generate(self, job: llmJob) -> str:

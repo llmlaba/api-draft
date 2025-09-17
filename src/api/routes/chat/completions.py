@@ -2,6 +2,9 @@ from flask import Blueprint, jsonify, request
 import uuid
 
 from src.generators.job import llmJob
+from src.logger import get_logger, correlation_context
+
+logger = get_logger(__name__)
 
 
 def create_blueprint(deps):
@@ -29,6 +32,7 @@ def create_blueprint(deps):
         data = request.get_json(force=True) or {}
         messages = data.get("messages")
         if not isinstance(messages, list) or not messages:
+            logger.info("Chat completion request missing messages list")
             return jsonify({"error": "messages (non-empty list) is required"}), 400
 
         params = {
@@ -39,6 +43,8 @@ def create_blueprint(deps):
         }
 
         job_id = str(uuid.uuid4())
+        logger.info("Enqueue chat-completion job", extra={"job_id": job_id})
+        logger.debug("Chat params", extra={"job_id": job_id, "params": params, "num_messages": len(messages)})
         job = llmJob(
             id=job_id,
             api="chat-completion",
@@ -49,10 +55,13 @@ def create_blueprint(deps):
         jobs[job_id] = job
         job_queue.put(job)
 
-        job.done.wait()
-        if job.error:
-            return jsonify({"job_id": job_id, "error": job.error}), 500
-        return jsonify({"job_id": job_id, "result": job.result})
+        with correlation_context(job_id):
+            job.done.wait()
+            if job.error:
+                logger.error("Chat job failed", extra={"job_id": job_id, "error": job.error})
+                return jsonify({"job_id": job_id, "error": job.error}), 500
+            logger.info("Chat job completed", extra={"job_id": job_id})
+            return jsonify({"job_id": job_id, "result": job.result})
 
     return bp
 

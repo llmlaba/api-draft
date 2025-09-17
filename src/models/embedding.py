@@ -12,7 +12,7 @@
 from typing import List, Protocol, Optional
 import torch
 from dataclasses import dataclass
-from src import logger
+from src.logger import get_logger
 from src.models.config import ModelConfig
 
 # Простой маппинг типов для управления dtype при загрузке
@@ -31,6 +31,7 @@ class embedding_loader:
     """
 
     def __init__(self, config: ModelConfig) -> None:
+        self._log = get_logger(__name__)
         self.config = config
         self.model_path = config.model_id
         self.dtype = _DTYPE_MAP.get((config.dtype or "bf16").lower(), torch.bfloat16)
@@ -44,7 +45,13 @@ class embedding_loader:
 
     def load(self):
         from sentence_transformers import SentenceTransformer
-        logger.info(f"[embedder] Loading {self.model_path} on {self.device} (dtype={self.dtype})")
+        self._log.info(
+            "[EMB] Loading embedder",
+            extra={
+                "model_id": self.model_path,
+                "dtype": str(self.dtype)
+            },
+        )
         # Разные версии SentenceTransformers поддерживают разные параметры конструктора.
         # Пробуем с максимальным набором, затем деградируем.
         try:
@@ -68,5 +75,6 @@ class embedding_loader:
             try:
                 self._model = self._model.to(dtype=self.dtype)
             except Exception:
-                pass
+                self._log.warning("[EMB] Converting model dtype failed; continuing with default", exc_info=True)
+        self._log.info("[EMB] Embedder loaded")
         return self._model

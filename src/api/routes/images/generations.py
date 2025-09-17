@@ -2,6 +2,9 @@ from flask import Blueprint, jsonify, request
 import uuid
 
 from src.generators.job import imageJob
+from src.logger import get_logger, correlation_context
+
+logger = get_logger(__name__)
 
 
 def create_blueprint(deps):
@@ -27,6 +30,7 @@ def create_blueprint(deps):
         data = request.get_json(force=True) or {}
         prompt = data.get("prompt", "").strip()
         if not prompt:
+            logger.info("Image generation request missing prompt")
             return jsonify({"error": "prompt is required"}), 400
 
         params = {
@@ -38,19 +42,24 @@ def create_blueprint(deps):
             try:
                 params["seed"] = int(data.get("seed"))
             except Exception:
-                pass
+                logger.warning("Invalid seed provided; ignoring", exc_info=True)
 
         if job_queue is None or jobs is None:
             return jsonify({"error": "image generation is not enabled"}), 503
 
         job_id = str(uuid.uuid4())
+        logger.info("Enqueue image generation job", extra={"job_id": job_id})
+        logger.debug("Image params", extra={"job_id": job_id, "params": params, "prompt_len": len(prompt)})
         job = imageJob(id=job_id, prompt=prompt, params=params, api="generation")
         jobs[job_id] = job
         job_queue.put(job)
 
-        job.done.wait()
-        if job.error:
-            return jsonify({"job_id": job_id, "error": job.error}), 500
-        return jsonify({"job_id": job_id, "result": job.result})
+        with correlation_context(job_id):
+            job.done.wait()
+            if job.error:
+                logger.error("Image job failed", extra={"job_id": job_id, "error": job.error})
+                return jsonify({"job_id": job_id, "error": job.error}), 500
+            logger.info("Image job completed", extra={"job_id": job_id})
+            return jsonify({"job_id": job_id, "result": job.result})
 
     return bp

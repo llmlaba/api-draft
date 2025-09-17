@@ -3,6 +3,9 @@ import uuid
 import io
 
 from src.generators.job import speechJob
+from src.logger import get_logger, correlation_context
+
+logger = get_logger(__name__)
 
 
 def create_blueprint(deps):
@@ -28,6 +31,7 @@ def create_blueprint(deps):
         data = request.get_json(force=True) or {}
         text = (data.get("input") or data.get("prompt") or "").strip()
         if not text:
+            logger.info("Speech request missing input text")
             return jsonify({"error": "input is required"}), 400
 
         params = {
@@ -37,26 +41,32 @@ def create_blueprint(deps):
         }
 
         job_id = str(uuid.uuid4())
+        logger.info("Enqueue speech synthesis job", extra={"job_id": job_id})
+        logger.debug("Speech params", extra={"job_id": job_id, "params": params, "text_len": len(text)})
         job = speechJob(id=job_id, prompt=text, params=params)
         jobs[job_id] = job
         job_queue.put(job)
 
-        job.done.wait()
-        if job.error:
-            return jsonify({"job_id": job_id, "error": job.error}), 500
+        with correlation_context(job_id):
+            job.done.wait()
+            if job.error:
+                logger.error("Speech job failed", extra={"job_id": job_id, "error": job.error})
+                return jsonify({"job_id": job_id, "error": job.error}), 500
 
-        result = job.result or {}
-        audio_bytes = result.get("audio_bytes")
-        fmt = (result.get("format") or "wav").lower()
-        mime = result.get("mime") or ("audio/wav" if fmt == "wav" else "application/octet-stream")
+            result = job.result or {}
+            audio_bytes = result.get("audio_bytes")
+            fmt = (result.get("format") or "wav").lower()
+            mime = result.get("mime") or ("audio/wav" if fmt == "wav" else "application/octet-stream")
 
-        if not audio_bytes:
-            return jsonify({"job_id": job_id, "error": "no audio produced"}), 500
+            if not audio_bytes:
+                logger.error("Speech job produced no audio", extra={"job_id": job_id})
+                return jsonify({"job_id": job_id, "error": "no audio produced"}), 500
 
-        return send_file(
-            io.BytesIO(audio_bytes),
-            mimetype=mime,
-            as_attachment=False,
-        )
+            logger.info("Speech job completed", extra={"job_id": job_id})
+            return send_file(
+                io.BytesIO(audio_bytes),
+                mimetype=mime,
+                as_attachment=False,
+            )
 
     return bp

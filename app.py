@@ -3,13 +3,14 @@ import queue
 import argparse
 from typing import Dict, List, Any, Set
 
-from config import ModelLLM, ModelLLMInstruct, ModelDiffusers, ModelTTS
+from config import ModelLLM, ModelLLMInstruct, ModelDiffusers, ModelTTS, LOG_LEVEL
 from src.models.config import ModelConfig
 from src.generators.job import llmJob, imageJob, speechJob
 from src.generators.llm import LLMGenerator
 from src.generators.diffusers import DiffusersGenerator
 from src.generators.speech import SpeechGenerator
 from src.api.server import create_app, Deps
+from src.logger import set_global_log_level, get_logger
 
 # Global queues and job registries
 # LLM / Chat
@@ -38,9 +39,12 @@ def _to_model_config(cfg: Any) -> ModelConfig:
         trust_remote_code=bool(getattr(cfg, "trust_remote_code", False)),
     )
 
+logger = get_logger(__name__)
+
 def build_generators_and_app(models: List[str]):
     generators: List[Any] = []
     enabled_apis: Set[str] = set()
+    logger.info("Building generators and Flask app", extra={"stage": "init"})
 
     # LLM / Chat
     llm_cfg = None
@@ -98,6 +102,13 @@ def build_generators_and_app(models: List[str]):
 
 
 def main():
+    # Set global logging level from config and propagate
+    try:
+        set_global_log_level(LOG_LEVEL)
+    except Exception:
+        # Fallback: default set by logger module
+        pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--models",
@@ -111,24 +122,29 @@ def main():
     )
     args = parser.parse_args()
 
+    logger.info("Starting application", extra={"models": args.models})
     generators, flask_app = build_generators_and_app(args.models)
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
+    logger.info("Running Flask app", extra={"host": host, "port": port})
     try:
         flask_app.run(host=host, port=port)
     except KeyboardInterrupt:
-        pass
+        logger.info("Shutting down (KeyboardInterrupt)")
+    except Exception:
+        logger.exception("Unhandled exception in Flask app")
     finally:
         for g in generators:
             try:
+                logger.debug("Stopping generator", extra={"generator": type(g).__name__})
                 g.stop()
             except Exception:
-                pass
+                logger.warning("Failed to stop generator", exc_info=True)
             try:
                 g.join(timeout=5.0)
             except Exception:
-                pass
+                logger.warning("Failed to join generator", exc_info=True)
 
 
 if __name__ == "__main__":

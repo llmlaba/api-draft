@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 import torch
 from transformers import AutoProcessor, BarkModel
 from src.models.config import ModelConfig
+from src.logger import get_logger
 
 
 _DTYPE_MAP = {
@@ -35,6 +36,7 @@ class tts_loader:
     """
 
     def __init__(self, config: ModelConfig) -> None:
+        self._log = get_logger(__name__)
         self.config = config
         self.model_path = config.model_id
         # Accept common dtype aliases; default to bf16
@@ -49,6 +51,13 @@ class tts_loader:
         self._processor: Optional[AutoProcessor] = None
 
     def load(self) -> Tuple[BarkModel, AutoProcessor]:
+        self._log.info(
+            "[TTS] Loading Bark model",
+            extra={
+                "model_id": self.model_path,
+                "dtype": str(self.dtype)
+            },
+        )
         self._processor = AutoProcessor.from_pretrained(
             self.model_path,
             local_files_only=self.local_files_only,
@@ -64,5 +73,6 @@ class tts_loader:
         try:
             self._model = self._model.to(self.device)
         except Exception:
-            pass
+            self._log.warning("[TTS] Moving model to device failed; using default placement", exc_info=True)
+        self._log.info("[TTS] Model and processor loaded")
         return self._model, self._processor

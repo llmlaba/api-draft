@@ -1,4 +1,7 @@
+import logging
 from dataclasses import dataclass
+
+LOG_LEVEL = logging.INFO
 
 @dataclass
 class ModelLLM:

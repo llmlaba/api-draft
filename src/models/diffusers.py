@@ -16,6 +16,7 @@ import torch
 from transformers import CLIPTextModel
 from diffusers import StableDiffusionPipeline, UNet2DConditionModel
 from src.models.config import ModelConfig
+from src.logger import get_logger
 
 # Quantization policies for UNet (diffusers) and Text Encoder (transformers)
 try:
@@ -48,6 +49,7 @@ class diffusion_loader:
     """
 
     def __init__(self, config: ModelConfig) -> None:
+        self._log = get_logger(__name__)
         self.config = config
         self.model_path = config.model_id
         self.quant = (config.quant or "none").lower()
@@ -69,7 +71,17 @@ class diffusion_loader:
         return None, None
 
     def load(self) -> StableDiffusionPipeline:
+        self._log.info(
+            "[SD] Loading Stable Diffusion pipeline",
+            extra={
+                "model_id": self.model_path,
+                "quant": self.quant,
+                "dtype": str(self.dtype)
+            },
+        )
         te_conf, unet_conf = self._select_quant_confs()
+        if (te_conf is None or unet_conf is None) and self.quant not in (None, "none"):
+            self._log.warning("[SD] Quantization policies not available; proceeding without quantization", extra={"requested_quant": self.quant})
 
         text_encoder = CLIPTextModel.from_pretrained(
             self.model_path,
@@ -79,6 +91,7 @@ class diffusion_loader:
             local_files_only=self.local_files_only,
             trust_remote_code=self.trust_remote_code,
         )
+        
         unet = UNet2DConditionModel.from_pretrained(
             self.model_path,
             subfolder="unet",
@@ -103,8 +116,9 @@ class diffusion_loader:
         try:
             pipe = pipe.to(self.device)
         except Exception:
-            pass
+            self._log.warning("[SD] Moving pipeline to device failed; using default placement", exc_info=True)
 
         self._components = (text_encoder, unet)
         self._pipe = pipe
+        self._log.info("[SD] Pipeline loaded")
         return pipe

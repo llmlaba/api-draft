@@ -15,12 +15,14 @@ import torch
 from src.models.config import ModelConfig
 from src.models.tts import tts_loader
 from src.generators.job import speechJob
+from src.logger import get_logger, correlation_context
 
 
 class SpeechGenerator:
     def __init__(self, job_queue: "queue.Queue[speechJob]", config: ModelConfig) -> None:
         self.queue: "queue.Queue[speechJob]" = job_queue
         self.config = config
+        self._log = get_logger(__name__)
 
         loader = tts_loader(config)
         self.model, self.processor = loader.load()
@@ -30,10 +32,12 @@ class SpeechGenerator:
 
     def start(self) -> "SpeechGenerator":
         if not self.worker.is_alive():
+            self._log.info("Starting Speech worker thread")
             self.worker.start()
         return self
 
     def stop(self) -> None:
+        self._log.info("Stopping Speech worker thread")
         self._stop_event.set()
 
     def join(self, timeout: Optional[float] = None) -> None:
@@ -46,17 +50,22 @@ class SpeechGenerator:
             except queue.Empty:
                 continue
 
-            try:
-                result = self._synthesize(job)
-                job.result = result
-            except Exception as e:  # noqa: BLE001
-                job.error = repr(e)
-            finally:
-                job.done.set()
+            with correlation_context(job.id):
                 try:
-                    self.queue.task_done()
-                except Exception:
-                    pass
+                    self._log.info("Processing speech job", extra={"job_id": job.id})
+                    self._log.debug("Speech job params", extra={"job_id": job.id, "params": job.params})
+                    result = self._synthesize(job)
+                    job.result = result
+                    self._log.info("Speech job done", extra={"job_id": job.id})
+                except Exception as e:  # noqa: BLE001
+                    job.error = repr(e)
+                    self._log.exception("Error while processing speech job", extra={"job_id": job.id})
+                finally:
+                    job.done.set()
+                    try:
+                        self.queue.task_done()
+                    except Exception:
+                        self._log.warning("queue.task_done() failed", exc_info=True)
 
     def _synthesize(self, job: speechJob) -> Dict[str, Any]:
         params = job.params or {}
